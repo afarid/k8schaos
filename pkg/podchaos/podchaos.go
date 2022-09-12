@@ -3,6 +3,8 @@ package podchaos
 import (
 	"context"
 	"errors"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
 	v1 "k8s.io/api/core/v1"
 	v1meta "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,6 +18,22 @@ import (
 	"k8schaos/pkg/log"
 	"k8schaos/utils"
 	"time"
+)
+
+const (
+	componentLabel = "component"
+	instanceLabel  = "instance"
+	nameLabel      = "name"
+	ChartLabel     = "chart"
+)
+
+var (
+	deletedPods = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Subsystem: "pod_chaos",
+		Name:      "deleted_pods",
+		Help:      "Number of deleted pods",
+	}, []string{componentLabel, instanceLabel, nameLabel, ChartLabel},
+	)
 )
 
 type option func(*service)
@@ -55,8 +73,10 @@ func (s *service) GetRandomObject() (runtime.Object, error) {
 }
 
 func (s *service) DeleteObject(object runtime.Object) error {
-	podName := object.(*v1.Pod).Name
-	err := s.clientset.CoreV1().Pods(s.namespace).Delete(context.Background(), podName, v1meta.DeleteOptions{})
+	pod := object.(*v1.Pod)
+	err := s.clientset.CoreV1().Pods(s.namespace).Delete(context.Background(), pod.Name, v1meta.DeleteOptions{})
+	deletedPods.WithLabelValues(pod.Labels["app.kubernetes.io/component"], pod.Labels["app.kubernetes.io/instance"],
+		pod.Labels["app.kubernetes.io/name"], pod.Labels["helm.sh/chart"]).Inc()
 	return err
 }
 
